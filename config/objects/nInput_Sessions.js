@@ -4,29 +4,23 @@
  * You can create an input to check for sessions using a map composed of:\
  *    - keys (a key string or an array of keys for an AF object)\
  *    - chKeys (a channel name for the keys of AF objects)\
- *    - attrTemplate (a string template for the name of the attribute using {{key}},{semNameOrDesc}},{{semName}},{{semDescription}})\
+ *    - attrTemplate (a string template)\
  * \
  * </odoc>
  */
-var nInput_Sessions = function(anMonitoredAFObjectKey, attributePrefix, dontIgnoreDuplicates) {
-	// Set server if doesn't exist
-	// Is a monitored object or a pool?
-	if (isObject(anMonitoredAFObjectKey)) {
-		this.params = anMonitoredAFObjectKey;
+var nInput_Sessions = function(aMap) {
+	if (isObject(aMap)) {
+		this.params = aMap;
+
 		// If keys is not an array make it an array.
 		if (!(isArray(this.params.keys))) this.params.keys = [ this.params.keys ];
-	} else {
-		if (nattrmon.isObjectPool(anMonitoredAFObjectKey)) {
-			this.objectPoolKey = anMonitoredAFObjectKey;
-			this.monitoredObjectKey = anMonitoredAFObjectKey; // just for reference
-		} 
-	}
+	} 
 
 	if (isDef(this.attributePrefix)) {
 		this.params.attrTemplate = this.attributePrefix;
 	}
-        if (isUnDef(this.params.attrTemplate)) {        
-		this.params.attrTemplate = "Server {{key}}/Sessions {{semNameOrDesc}}";
+    if (isUnDef(this.params.attrTemplate)) {        
+		this.params.attrTemplate = "RAID Server status/Sessions";
 	}
 
 	nInput.call(this, this.input);
@@ -58,18 +52,18 @@ nInput_Sessions.prototype.__getSessions = function(aKey, scope) {
  			r["Name"] = aKey; 
 			r["Start Time"] = ow.format.fromWeDoDateToDate(r["Start Time"]);
  			return {
-                           "Name": aKey,
+               "Name": aKey,
  			   "Username": r.Username,
  			   "Id": r.Id,
-		           "Start Time": r["Start Time"]
-                        };
+		       "Start Time": r["Start Time"]
+            };
 		});
 	} catch(e) {
 		logErr("Error while retrieving sessions using '" + aKey + "': " + e.message);
 	}
 
 	return retSes;
-}
+};
 
 nInput_Sessions.prototype.input = function(scope, args) {
 	var res = {};
@@ -81,7 +75,7 @@ nInput_Sessions.prototype.input = function(scope, args) {
 		arr = arr.concat(this.__getSessions(this.params.keys[i], scope));
 	}
    
-        res[templify(this.params.attrTemplate)] = $from(arr).sort("Start Time", "Username", "Name").select();
+    res[templify(this.params.attrTemplate)] = $from(arr).sort("Start Time", "Username", "Name").select();
 	return res;
-}
+};
 

@@ -2,11 +2,12 @@
  * <odoc>
  * <key>nattrmon.nInput_RAIDMemory(aMap) : nInput</key>
  * aMap is composed of:\
- *    - keys (a key string or an array of keys for an AF object)
- *    - chKeys (a channel name for the keys of AF objects)
- *    - attrTemplate (a template for the name of the attribute))
- *    - single (boolean when false display the corresponding key)
- *    - extra (an array of extra map values to include from the chKeys channel values)
+ *    - keys (a key string or an array of keys for an AF object)\
+ *    - chKeys (a channel name for the keys of AF objects)\
+ *    - attrTemplate (a template for the name of the attribute)\
+ *    - single (boolean when false display the corresponding key)\
+ *    - extra (an array of extra map values to include from the chKeys channel values)\
+ * \
  * </odoc>
  */
 var nInput_RAIDMemory = function(anMonitoredAFObjectKey, attributePrefix) {
@@ -87,7 +88,7 @@ nInput_RAIDMemory.prototype.input = function(scope, args) {
 	var res = {};
 	var arr = [];
 
-	if (isDef(this.params.chKeys)) this.params.keys = $stream($ch(this.params.chKeys).getKeys()).map("key").toArray();
+	if (isDef(this.params.chKeys)) this.params.keys = $stream($ch(this.params.chKeys).getKeys()).map("key").toArray().sort();
 
 	for(var i in this.params.keys) {
 		var extra = {};

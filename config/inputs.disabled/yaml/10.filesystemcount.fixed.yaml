@@ -1,0 +1,18 @@
+input: 	
+   name         : Fixed Subscribers Filesystem check 
+   timeInterval : 60000
+   waitForFinish: true
+   onlyOnEvent  : true
+   execFrom     : nInput_FilesystemCount
+   execArgs     : 
+     attrTemplate: Filesystem/Test
+     folders     :
+      - name   : Input
+        folder : /data/loading/test/in
+        pattern: .*\.csv
+      - name   : Error
+        folder : /data/loading/test/err
+        pattern: .*
+      - name   : Done
+        folder : /data/loading/test/done
+        pattern: .*\.csv
