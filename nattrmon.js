@@ -1,3 +1,10 @@
+// Initialization
+var LOGHK_HOWLONGAGOINMINUTES = 30 * 24 * 60; // How long to keep logs
+var LOGAUDIT = true; // Set to false to turn it off
+var LOGAUDIT_TEMPLATE = "AUDIT | User: {{request.user}} | Channel: {{name}} | Operation: {{op}} | Key: {{{key}}}";
+
+// -------------------------------------------------------------------
+
 // check version
 af.getVersion() >= "20170101" || (print("Version " + af.getVersion() + ". You need OpenAF version 20170101 to run.")) || exit(-1);
 
@@ -20,16 +27,76 @@ ow.loadServer();
 ow.loadObj(); 
 ow.loadFormat(); 
 ow.loadTemplate();
+ow.template.addFormatHelpers();
+ow.template.addConditionalHelpers();
 loadLodash(); 
 
-// ----------------------------------------------------------------------------------------------
+// nAttrMon template helpers -----------------------------------------------------------------
+// -------------------------------------------------------------------------------------------
+
+ow.template.addHelper("attr", (a, p) => {
+	if (isDef(a) && a != null) {
+		var res = nattrmon.getAttributes().getAttributeByName(a);
+		if (isDef(p) && p != null && isString(p)) {
+			res = ow.obj.getPath(res, p);
+		} else {
+			res = stringify(res, void 0, "");
+		}
+		return res;
+	} else {
+		return null;
+	}
+});
+ow.template.addHelper("cval", (a, p) => {
+	if (isDef(a) && a != null) {
+		var res = nattrmon.getCurrentValues(true).get({ name: a });
+		if (isDef(p) && p != null && isString(p)) {
+			res = ow.obj.getPath(res, p);
+		} else {
+			res = stringify(res, void 0, "");
+		}
+		return res;
+	} else {
+		return null;
+	}
+});
+ow.template.addHelper("lval", (a, p) => {
+	if (isDef(a) && a != null) {
+		var res = nattrmon.getLastValues(true).get({ name: a });
+		if (isDef(p) && p != null && isString(p)) {
+			res = ow.obj.getPath(res, p);
+		} else {
+			res = stringify(res, void 0, "");
+		}
+		return res;
+	} else {
+		return null;
+	}
+});
+ow.template.addHelper("warn", (a, p) => {
+	if (isDef(a) && a != null) {
+		var res = nattrmon.getWarnings(true).get({ title: a });
+		if (isDef(p) && p != null && isString(p)) {
+			res = ow.obj.getPath(res, p);
+		} else {
+			res = stringify(res, void 0, "");
+		}
+		return res;
+	} else {
+		return null;
+	}
+});
+
+ow.template.addHelper("debug", (s) => { sprint(s); });
+
+// Main object ----------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------------
 
 var nAttrMon = function(aConfigPath, debugFlag) {
 	plugin("Threads");
 
-	this.chCurrentValues = "nattrmon::values";
-	this.chLastValues = "nattrmon::lastValues";
+	this.chCurrentValues = "nattrmon::cvals";
+	this.chLastValues = "nattrmon::lvals";
 
 	$ch(this.chCurrentValues).create();
 	$ch(this.chLastValues).create();
@@ -60,15 +127,41 @@ var nAttrMon = function(aConfigPath, debugFlag) {
 	this.indexPlugThread = {};
 
 	var nattrmon = this;
+
+	// Start logging
+	io.mkdir(aConfigPath + "/log");
+	ow.ch.utils.setLogToFile({
+		logFolder: aConfigPath + "/log",
+		HKhowLongAgoInMinutes: LOGHK_HOWLONGAGOINMINUTES,
+		numberOfEntriesToKeep: 10,
+		setLogOff            : true
+	});
+
+	if (LOGAUDIT) {
+		ow.ch.server.setLog(function(aMap) {
+			aMap = merge(aMap, { key: stringify(jsonParse(aMap.request.uri.replace(/.+({[^}]+}).*/, "$1").replace(/&quot;/g, "\'")),undefined,"").replace(/\"/g, "") });
+			tlog(LOGAUDIT_TEMPLATE, aMap);
+		});
+	}
+
+	print(new Date() + " | Starting log to " + aConfigPath + "/log");
+
+	// date checks
+	this.currentValues.subscribe((new nAttributeValue()).convertDates);
+	this.lastValues.subscribe((new nAttributeValue()).convertDates);
+	this.listOfAttributes.getCh().subscribe((new nAttribute()).convertDates);
+    this.listOfWarnings.getCh().subscribe((new nWarning()).convertDates);
+   
+    // persistence
 	this.currentValues.storeAdd(this.getConfigPath() + "/nattrmon.cvals.snapshot", [ "name" ], true);
 	this.lastValues.storeAdd(this.getConfigPath() + "/nattrmon.lvals.snapshot", [ "name" ], true);
 	this.listOfAttributes.getCh().storeAdd(this.getConfigPath() + "/nattrmon.attrs.snapshot", [ "name" ], true);
 	this.listOfWarnings.getCh().storeAdd(this.getConfigPath() + "/nattrmon.warns.snapshot", [ "title" ], true);
-}
+};
 
 nAttrMon.prototype.getConfigPath = function() {
 	return this.configPath;
-}
+};
 
 // Snapshot functions
 // ------------------
@@ -440,10 +533,12 @@ nAttrMon.prototype.getHistoryValuesByEvents = function(anAttributeName, howManyE
  	}
 }
 
-nAttrMon.prototype.addValues = function(onlyOnEvent, aValues) {
+nAttrMon.prototype.addValues = function(onlyOnEvent, aOrigValues) {
 	var count;
 
-	if (isUnDef(aValues)) return;
+	if (isUnDef(aOrigValues) || isUnDef(aOrigValues.attributes)) return;
+
+	var aValues = aOrigValues.attributes;
 
 	for(var key in aValues) {
 		if (key.length > 0) {
@@ -645,16 +740,16 @@ nAttrMon.prototype.loadObject = function(yy, type) {
 	if (isUnDef(yy.args)) yy.args = {};
 	if (isDef(yy.exec))
 		switch (type) {
-			case "input": yy.exec = new nInput(new Function("var scope = arguments[0]; var args = arguments[1]; " + yy.exec)); break;
-			case "output": yy.exec = new nOutput(new Function("var scope = arguments[0]; var args = arguments[1]; " + yy.exec)); break;
+			case "input"     : yy.exec = new nInput(new Function("var scope = arguments[0]; var args = arguments[1]; " + yy.exec)); break;
+			case "output"    : yy.exec = new nOutput(new Function("var scope = arguments[0]; var args = arguments[1]; " + yy.exec)); break;
 			case "validation": yy.exec = new nValidation(new Function("var warns = arguments[0]; var scope = arguments[1]; var args = arguments[2]; " + yy.exec)); break;
 		}
-	if (isUnDef(yy.execArgs)) yy.execArgs = [{}];
-	if (!(isArray(yy.execArgs))) yy.execArgs = [yy.execArgs];
+	if (isUnDef(yy.execArgs)) yy.execArgs = {};
+	//if (!(isArray(yy.execArgs))) yy.execArgs = yy.execArgs;
 	if (isDef(yy.execFrom)) {
 		var o = eval(yy.execFrom);
 		yy.exec = Object.create(o.prototype);
-		o.apply(yy.exec, yy.execArgs);
+		o.apply(yy.exec, [yy.execArgs]);
 	}
 
 	return yy;
@@ -812,3 +907,4 @@ ow.server.daemon(__sleepperiod, function() {
 nattrmon.stop();
 
 log("nAttrMon stopped.");
+print(new Date() + " | Stopping.");
