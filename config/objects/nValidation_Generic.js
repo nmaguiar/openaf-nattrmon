@@ -35,7 +35,9 @@ var nValidation_Generic = function (aMap) {
 };
 inherit(nValidation_Generic, nValidation);
 
-nValidation_Generic.prototype.pathMapper = function (path) {
+nValidation_Generic.prototype.pathMapper = function(path) {
+    if (path == ".") return obj => obj
+
     if (path.indexOf('.') < 0) {
         return (obj) => {
             return obj[path];
@@ -53,33 +55,54 @@ nValidation_Generic.prototype.pathMapper = function (path) {
     };
 };
 
+nValidation_Generic.prototype.levelMapper = function(aLevel) {
+    switch (aLevel) {
+    case "HIGH": return nWarning.LEVEL_HIGH;
+    case "MEDIUM": return nWarning.LEVEL_MEDIUM;
+    case "LOW": return nWarning.LEVEL_LOW;
+    case "INFO": return nWarning.LEVEL_INFO;
+    default: return nWarning.LEVEL_INFO;
+    }
+};
+ 
 nValidation_Generic.prototype.checkEntry = function(ret, k, v, args) {
     for (var i in this.params.checks) {
         var check = this.params.checks[i]; 
+        var go = false
 
-        if (isDef(k) && 
-            ((isDef(check.attribute) && k.name == check.attribute) || 
-             (isDef(check.attrPattern) && k.name.match(new RegExp(check.attrPattern))) 
+        if (isDef(v) && 
+            ((isDef(check.attribute) && v.name == check.attribute) || 
+             (isDef(check.attrPattern) && v.name.match(new RegExp(check.attrPattern)))
             )
            ) {
+            go = true
+        }
+
+        if (isDef(v) && 
+            ((isDef(check.title) && v.title == check.title) || 
+             (isDef(check.titlePattern) && v.title.match(new RegExp(check.titlePattern)))
+            )
+           ) {
+            go = true
+            if (isUnDef(check.map)) check.map = "."
+        }
+
+        if (go) {
             var uuid;
             if (check.debug) uuid = genUUID();
 
-            var warnLevel;
-            switch (check.warnLevel) {
-            case "HIGH": warnLevel = nWarning.LEVEL_HIGH; break;
-            case "MEDIUM": warnLevel = nWarning.LEVEL_MEDIUM; break;
-            case "LOW": warnLevel = nWarning.LEVEL_LOW; break;
-            case "INFO": warnLevel = nWarning.LEVEL_INFO; break;
-            default: warnLevel = nWarning.LEVEL_INFO; break;
-            }
+            var warnLevel = this.levelMapper(check.warnLevel);
 
             var vals = [];
-            if (!(isArray(v.val))) vals = [v.val]; else vals = v.val;
+            if (isDef(v.val)) {
+                if (!(isArray(v.val))) vals = [v.val]; else vals = v.val
+            } else {
+                if (!(isArray(v))) vals = [v]; else vals = v
+            }
 
             for (var vv in vals) {
                 var val;
-                if (check.map) { val = this.pathMapper(check.map)(vals[vv]); print(val);} else val = vals[vv];
+                if (check.map) { val = this.pathMapper(check.map)(vals[vv]); } else val = vals[vv];
 
                 if (isUnDef(val)) {
                     if (check.debug) { sprint(merge(v, {
@@ -97,7 +120,7 @@ nValidation_Generic.prototype.checkEntry = function(ret, k, v, args) {
                     var generateWarning = true;
                     var data = args;
 
-                    var evalCond = (aV) => { generateWarning = aV; };
+                    var evalCond = (aV) => { generateWarning = (isDef(check.not) && check.not) ? !aV : aV; };
 
                     data.value = val;
                     data.originalValue = v.val;
@@ -128,7 +151,7 @@ nValidation_Generic.prototype.checkEntry = function(ret, k, v, args) {
                     }
                     data.dateModified = v.date;
 
-                    var expr = templify(check.expr, data);
+                    var expr = templify(check.expr, data).replace(/\n/g, "");
                     try {
                         if (check.debug) {
                             sprint({
@@ -141,7 +164,7 @@ nValidation_Generic.prototype.checkEntry = function(ret, k, v, args) {
                         if (af.eval(expr)) evalCond(true); else evalCond(false);
                     } catch(e) {
                         evalCond(false);
-                        logWarn("Couldn't evalute expression: " + check.expr + " for attribute " + stringify(v, undefined, "") + "");
+                        logWarn("Couldn't evaluate expression: " + check.expr + " for attribute " + stringify(v, undefined, "") + " [" + String(e) + "]");
                     }
 
                     // Prepare warning data
@@ -170,7 +193,68 @@ nValidation_Generic.prototype.checkEntry = function(ret, k, v, args) {
                                 }
                             });
                         }
-                        ret.push(new nWarning(warnLevel, warnTitle, warnDesc));
+
+                        var warn = new nWarning(warnLevel, warnTitle, warnDesc);
+
+                        if (isDef(check.healing) && isObject(check.healing)) {
+                            var hc = sha1(warnLevel + md5(warnTitle) + stringify(check.healing, void 0, ""));
+
+                            var cHealing = clone(check.healing);
+                            traverse(cHealing, (aK, aV, aP, aO) => {
+                                if (isString(aO[aK]) && aK != "exec" && aK != "execOJob" && !aK.startsWith("warn")) {
+                                    aO[aK] = templify(aO[aK], data).replace(/\n/g, "");
+                                    try { 
+                                        aO[aK] = af.eval(aO[aK]);
+                                    } catch(e) {
+                                        if (check.debug) 
+                                            sprint({
+                                                execId: uuid,
+                                                healing: {
+                                                    line: aO[aK],
+                                                    exception: e
+                                                }
+                                            });
+                                    }
+                                }
+                            });
+
+                            var runHealing = isUnDef(nattrmon.isNotified(warnTitle, hc));
+                            if (!runHealing && isNumber(cHealing.retryInMS)) {
+                                var w = nattrmon.isNotified(warnTitle, hc);
+                                if (isDef(w) && now() - (new Date(w)).getTime() > cHealing.retryInMS) {
+                                    runHealing = true;
+                                    logWarn("Retrying healing for '" + warnTitle + "'...");
+                                }
+                            }
+                            if (runHealing) {
+                                try {
+                                    if (!(nattrmon.setNotified(warnTitle, hc, new Date()))) {
+                                        if (isUnDef(warn.notified)) warn.notified = {};
+                                        warn.notified[hc] = true;
+                                    }
+                                    if (isDef(cHealing.exec)) {
+                                        logWarn("Running healing execution for '" + warnTitle + "'");
+                                        (new Function('args', cHealing.exec))(cHealing.execArgs);
+                                    }
+                                    if (isDef(cHealing.execOJob)) {
+                                        logWarn("Running healing ojob for '" + warnTitle + "'");
+                                        oJobRunFile(cHealing.execOJob, cHealing.execArgs);
+                                    }
+                                } catch(e) {
+                                    logErr("Healing job failed for '" + warnTitle + "' with exception: " + String(e));
+                                    if (cHealing.warnTitleTemplate) {
+                                        sprint(merge(data, { exceptionMessage: String(e) }));
+                                        var healWarnTitle = templify(cHealing.warnTitleTemplate, merge(data, { exceptionMessage: String(e) }));
+                                        var healWarnDesc = templify(cHealing.warnDescTemplate, merge(data, { exceptionMessage: String(e) }));
+                                        print(cHealing.warnDescTemplate);
+                                        print(healWarnDesc);
+                                        var healWarnLevel = this.levelMapper(cHealing.warnLevel);
+                                        ret.push(new nWarning(healWarnLevel, healWarnTitle, healWarnDesc));
+                                    }
+                                }
+                            }
+                        }
+                        ret.push(warn);
                     }
                 }
             }
@@ -183,11 +267,33 @@ nValidation_Generic.prototype.validate = function(warns, scope, args) {
     var ret = [];
     
     if (isDef(args) && isDef(args.k) && isDef(args.v)) {
-        ret = this.checkEntry(ret, args.k, args.v, args);
+        if (args.op == "setall") {
+            for(var ii in args.v) {
+                var go = true
+                if (isDef(this.params.attrPattern) && !args.v[ii].name.match(new RegExp(this.params.attrPattern))) go = false
+                if (isDef(this.params.attribute) && !args.v[ii].name.match(new RegExp(this.params.attribute))) go = false
+                if (isDef(this.params.titlePattern) && !args.v[ii].title.match(new RegExp(this.params.titlePattern))) go = false
+                if (isDef(this.params.title) && !args.v[ii].title.match(new RegExp(this.params.title))) go = false
+                if (go) ret = this.checkEntry(ret, args.k, args.v[ii], args)
+            }
+        }
+        if (args.op == "set") {
+            var go = true
+            if (isDef(this.params.attrPattern) && !args.v.name.match(new RegExp(this.params.attrPattern))) go = false
+            if (isDef(this.params.attribute) && !args.v.name.match(new RegExp(this.params.attribute))) go = false
+            if (isDef(this.params.titlePattern) && !args.v.title.match(new RegExp(this.params.titlePattern))) go = false
+            if (isDef(this.params.title) && !args.v.title.match(new RegExp(this.params.title))) go = false
+            if (go) ret = this.checkEntry(ret, args.k, args.v, args)
+        }
     } else {
         var cvals = scope.getCurrentValues();
         for(var i in cvals) {
-            ret = this.checkEntry(ret, { name: cvals[i].name }, cvals[i], args);
+            var go = true
+            if (isDef(this.params.attrPattern) && !cvals[i].name.match(new RegExp(this.params.attrPattern))) go = false
+            if (isDef(this.params.attribute) && !cvals[i].name.match(new RegExp(this.params.attribute))) go = false
+            if (isDef(this.params.titlePattern) && !cvals[i].title.match(new RegExp(this.params.titlePattern))) go = false
+            if (isDef(this.params.title) && !cvals[i].title.match(new RegExp(this.params.title))) go = false
+            if (go) ret = this.checkEntry(ret, { name: cvals[i].name }, cvals[i], args)
         }
     }
 

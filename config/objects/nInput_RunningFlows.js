@@ -22,6 +22,10 @@ Values for running status:
  * </odoc>
  */
 var nInput_RunningFlows = function(anMonitoredAFObjectKey, attributePrefix, anRunningStatus) {
+	if (isUnDef(getOPackPath("OpenCli"))) {
+        throw "OpenCli opack not installed.";
+	}
+	
 	if (isObject(anMonitoredAFObjectKey)) {
 		this.params = anMonitoredAFObjectKey;
 
@@ -58,7 +62,7 @@ inherit(nInput_RunningFlows, nInput);
  */
 nInput_RunningFlows.prototype.getCategories = function(aKey) {
 	var bpmFlowList;
-    if (isUnDef(this.bpmFlowCtgs)) {
+    //if (isUnDef(this.bpmFlowCtgs)) {
     	if (isDef(aKey)) {
 			nattrmon.useObject(aKey, function(s) {
 				try {
@@ -79,9 +83,9 @@ nInput_RunningFlows.prototype.getCategories = function(aKey) {
 
  		this.bpmFlowCtgs = tempFlowCtgs;
  		return this.bpmFlowCtgs;
-        } else {
-		return this.bpmFlowCtgs;
-    }
+    //    } else {
+	//	return this.bpmFlowCtgs;
+    //}
 };
 
 nInput_RunningFlows.prototype.convertRAIDDates = function(aRAIDDate) {
@@ -131,10 +135,10 @@ nInput_RunningFlows.prototype.input = function(scope, args) {
 
 										var line = (xml2.item[0].tip+"").replace(/[^=]+=([^;]+)/g, "$1|").split(/\|/);
 										var map2 = { "version": line[0], "runId": line[1].replace(/,/g, ""), "user": line[2], "date": line[3] };
-										if (this.runningstatus == 3) {
+										if (parent.runningstatus == 3) {
 											// Try app if fails try adm
-											var dbKey = nattrmon.getAssociatedObjectPool(parent.aKey, "db.app");
-											if (isUnDef(dbKey)) dbKey = nattrmon.getAssociatedObjectPool(parent.aKey, "db.adm");
+											var dbKey = nattrmon.getAssociatedObjectPool(aKey, "db.app");
+											if (isUnDef(dbKey)) dbKey = nattrmon.getAssociatedObjectPool(aKey, "db.adm");
 
 											var admres;
 											nattrmon.useObject(dbKey, function(db) {
@@ -145,9 +149,9 @@ nInput_RunningFlows.prototype.input = function(scope, args) {
 												logErr(e);
 												throw e;
 											}
-											arr.push({ "Category": flowCtgs[j], "Flow": xml.item[ii].label.toString(), "Version": map2.version, "Run ID": map2.runId, "User": map2.user, "Date": this.convertRAIDDates(map2.date), "Exception": admres[0].EXCEPTION});
+											arr.push({ "Category": flowCtgs[j], "Flow": xml.item[ii].label.toString(), "Version": map2.version, "Run ID": map2.runId, "User": map2.user, "Date": parent.convertRAIDDates(map2.date), "Exception": admres[0].EXCEPTION});
 										} else {
-											arr.push({ "Category": flowCtgs[j], "Flow": xml.item[ii].label.toString(), "Version": map2.version, "Run ID": map2.runId, "User": map2.user, "Date": this.convertRAIDDates(map2.date)});
+											arr.push({ "Category": flowCtgs[j], "Flow": xml.item[ii].label.toString(), "Version": map2.version, "Run ID": map2.runId, "User": map2.user, "Date": parent.convertRAIDDates(map2.date)});
 										}
 									} catch(e) {
 										logErr("Error while retrieving flow executions using '" + parent.monitoredObjectKey + "': " + e.message);
@@ -169,12 +173,14 @@ nInput_RunningFlows.prototype.input = function(scope, args) {
 		// Order output by date
 		var today = new Date();
 		var aWeekAgo = new Date(today.setDate(today.getDate() - 7));
+
+		res[templify(this.params.attrTemplate, { key: aKey})] = [];
 		for(var i in arr.sort(function(a,b) { return b.Date - a.Date; } )) {
 			// If older than a week, ignore
 			if (arr[i].Date < aWeekAgo) continue;
 			res[templify(this.params.attrTemplate, { 
 				key: aKey
-			})] = arr[i];
+			})].push(arr[i]);
 		}				
 	}
 

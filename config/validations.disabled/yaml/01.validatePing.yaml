@@ -1,10 +1,27 @@
 validation:
    name         : Ping validation
+   description  : Simple validation for nInput_AFPing.
    chSubscribe  : nattrmon::cvals
    waitForFinish: true
-   onlyOnEvent  : true
-   execFrom     : nValidation_AFPing
+   execFrom     : nValidation_Generic
    execArgs     :
-      attrPattern      : Server status/Ping
-      warnTitleTemplate: RAID {{Name}} down
-      warnDescTemplate : An AF ping to the {{Name}} RAID server failed. The server could be down or not responsive. Check the server status and restart if needed. 
+      checks:
+         - attribute        : "Server status/Ping"
+           expr             : "{{value.Alive}} == false"
+           warnLevel        : HIGH
+           warnTitleTemplate: "RAID {{value.Name}} down"
+           warnDescTemplate : "An AF ping to the {{value.Name}} RAID server failed. The server could be down or not responsive. Check the server status and restart if needed."
+           #healing          :
+           #   execArgs         :
+           #     key: "{{value.Name}}"
+           #   execOJob         : ojobs/restartRAS.yaml
+           #   #exec  : "sh(args.key + '/restartRAS.sh');"              
+           #   warnLevel        : HIGH
+           #   warnTitleTemplate: "RAID {{value.Name}} down"
+           #   warnDescTemplate : "An AF ping to the {{value.Name}} RAID server failed. The server could be down or not responsive. Check the server status and restart if needed. An self-healing for {{value.Name}} RAID server also failed with exception {{exception}}."
+   
+         - attribute        : "Server status/Ping"
+           expr             : "{{value.Alive}} == true"
+           warnLevel        : INFO
+           warnTitleTemplate: "RAID {{value.Name}} up"
+           warnDescTemplate : "The {{value.Name}} RAID server is responding as expected appearing to be up."

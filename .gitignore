@@ -5,3 +5,5 @@ config/validations/*
 config/*.snapshot
 util/nattrmonConfig.zip
 configTest
+nattrmon.yaml
+config/.nattrmonignore

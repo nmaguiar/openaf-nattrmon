@@ -1,9 +1,9 @@
 input: 	
    name         : Shell Command
-   timeInterval : 60000
+   cron         : "*/1 * * * *"
    waitForFinish: true
    onlyOnEvent  : true
-   execFrom     : nInput_ShellCmd
+   execFrom     : nInput_Shell
    execArgs     : 
      attrTemplate: Commands/Script
      cmd         : /some/shell/command

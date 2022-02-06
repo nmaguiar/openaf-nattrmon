@@ -1,0 +1,1 @@
+<span style="font-weight: bold; background-color: yellow; color: black">&nbsp;&nbsp;{{yellowText}}&nbsp;&nbsp;</span>

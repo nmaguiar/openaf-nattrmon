@@ -10,6 +10,7 @@
         <script src="js/angular.min.js"></script>
         <script src="js/angular-animate.min.js"></script>
         <script src="js/nattrmon_js.js"></script>
+        <link rel="icon" type="image/png" href="/f/favicon.png" />
         <!-- Bootstrap core CSS -->
         <link href="css/bootstrap.min.css" rel="stylesheet">
         <link rel="stylesheet" href="/f/css/font-awesome.min.css">
@@ -23,6 +24,8 @@
     <![endif]-->
         <script>
             var nattrmonApp = angular.module('nattrmonApp', ['ngAnimate']);
+            var extra = "?";
+            if (getUrlParameter("ct") != "") extra = "?ct=" + getUrlParameter("ct");
 
             nattrmonApp.service('MetaService', function($http) {
                 this.getMeta = function() {
@@ -34,7 +37,7 @@
 
 			nattrmonApp.service('JsonService', function($http) {
                 this.getJson = function() {
-                    return $http.get('/json').then(function(result) {
+                    return $http.get('/json' + extra).then(function(result) {
                         return result;
                     });
                 };
@@ -46,6 +49,7 @@
                     var refreshTimeout = data.data.refresh;
                     $scope.refreshActive = false;
                     $scope.loading = true;
+                    $scope.showLogout = (document.cookie.indexOf("nattrmon_auth=1") >= 0);
 
                     JsonService.getJson().then(function(d) {
                         refresh(d.data);
@@ -56,6 +60,8 @@
                          catch(e) { $scope.warnsMedium = 0 };
                         try { $scope.warnsLow = Object.keys(nattrmonWarns['Low']).length; }
                          catch(e) { $scope.warnsLow = 0 };
+                        try { $scope.warnsInfo = Object.keys(nattrmonWarns['Info']).length; }
+                         catch(e) { $scope.warnsInfo = 0 };                         
                     });
 
                     $scope.startRefresh = function() {
@@ -65,6 +71,7 @@
                             $scope.loading = true;
                             MetaService.getMeta().then(function(d) {
                                 $scope.title = d.data.title;
+                                $scope.extra = extra;
                                 $scope.refresh = d.data.refresh;
                                 document.title = d.data.title + " nAttrMon";
                                 $scope.loading = false;
@@ -73,10 +80,11 @@
                             $scope.loading = true;
                             JsonService.getJson().then(function(d) {
                                 refresh(d.data);
-                                $scope.ctgs = nattrmonCtgs;
+                                $scope.warns = nattrmonWarns;
                                 $scope.warnsHigh = Object.keys(nattrmonWarns['High']).length;
-                       		$scope.warnsMedium = Object.keys(nattrmonWarns['Medium']).length;
-                      		$scope.warnsLow = Object.keys(nattrmonWarns['Low']).length;
+                       		    $scope.warnsMedium = Object.keys(nattrmonWarns['Medium']).length;
+                                $scope.warnsLow = Object.keys(nattrmonWarns['Low']).length;
+                                $scope.warnsInfo = Object.keys(nattrmonWarns['Info']).length;
                                 $scope.loading = false;
                             });
 
@@ -129,26 +137,32 @@
                         <span class="icon-bar"></span>
                         <span class="icon-bar"></span>
                     </button>
-                    <a class="navbar-brand" href="#" ng-click="startRefresh()">{{title}} - nAttrMon report</a>
+                    <a class="navbar-brand" href="index.html{{extra}}" ng-click="startRefresh()"><i class="icon-wedo-nattrmon" style="font-size:150%;color:darkorange"></i>&nbsp;&nbsp;<span style="color:darkorange"></span><span style="color:#f5f5f5">{{title}}</span>&nbsp;<span style="font-size:75%;"> nAttrMon warnings</span></a>
                 </div>
                 <div class="navbar-collapse collapse">
                     <ul class="nav navbar-nav navbar-right">
                         <li>
-                            <a href="index.html">Warnings</a>
+                            <a href="index.html{{extra}}">Warnings</a>
                         </li>
                         <li>
-                            <a href="now.html">Now</a>
+                            <a href="now.html{{extra}}">Now</a>
                         </li>
                         <li>
-                            <a href="history.html">History</a>
+                            <a href="history.html{{extra}}">History</a>
                         </li>
+                        <li>
+                            <a href="plugs.html{{extra}}">Plugs</a>
+                        </li>      
+                        <li ng-if="showLogout">
+                            <a href="logout.html">Logout</a>
+                        </li>                   
                     </ul>
                 </div>
             </div>
         </div>
         <div class="container-fluid">
             <div class="row">
-                <div class="col-sm-2 sidebar">
+                <div class="col-sm-2 sidebar" style="overflow-x: hidden; overflow-y: auto">
                     <div ng-if="refreshActive" class="animate-if" style="text-align: center">
                         <small ng-hide="loading"><i>Refreshed every {{refresh}}ms</i></small>
                         <small ng-show="loading"><i class="fa fa-spinner fa-pulse"></i><i> Loading</i></small>
@@ -175,6 +189,9 @@
                         <li>
                             <a href="#Low">Low (#{{warnsLow}})</a>
                         </li>
+                        <li>
+                            <a href="#Info">Info (#{{warnsInfo}})</a>
+                        </li>
                     </ul>
                 </div>
                 <div class="col-sm-10 col-sm-offset-2 main">
@@ -182,9 +199,10 @@
                     <div class="table-responsive" ng-if="warnsHigh > 0">
                         <table class="table table-striped">
                             <tbody>
-                                <tr ng-repeat="a in warns['High'] | orderBy: 'lastupdate'">
-                                    <td align="right" class="nwarning_High">
-                                        <small><b><i class="fa fa-exclamation-circle fa-2x"></i><br>{{a.title}}</b></small>
+                                <tr ng-repeat="a in warns['High'] | orderBy: 'title'">
+                                    <td style="width: 5px; padding-left: 0px;padding-right: 0px;" class="nwarning_High"></td>
+                                    <td align="left" bgcolor="#f0f0f0"'>
+                                        <small><b><i class="fa fa-exclamation-circle fa-2x" style="font-size: 15px"></i>&nbsp;&nbsp;{{a.title}}</b></small>
                                     </td>
                                     <td ng-bind-html="render(a.description, 'desc')"></td>
                                     <td align="right" style="white-space: nowrap; width: 1%">
@@ -199,9 +217,10 @@
                     <div class="table-responsive" ng-if="warnsMedium > 0">
                         <table class="table table-striped">
                             <tbody>
-                                <tr ng-repeat="a in warns['Medium'] | orderBy: 'lastupdate'">
-                                    <td align="right" class="nwarning_Medium">
-                                        <small><b><i class="fa fa-exclamation-triangle fa-2x"></i><br>{{a.title}}</b></small>
+                                <tr ng-repeat="a in warns['Medium'] | orderBy: 'title'">
+                                    <td style="width: 5px; padding-left: 0px;padding-right: 0px;" class="nwarning_Medium"></td>
+                                    <td align="left" bgcolor="#f0f0f0"'>
+                                        <small><b><i class="fa fa-exclamation-triangle fa-2x" style="font-size: 15px"></i>&nbsp;&nbsp;{{a.title}}</b></small>
                                     </td>
                                     <td ng-bind-html="render(a.description, 'desc')"></td>
                                     <td align="right" style="white-space: nowrap; width: 1%">
@@ -216,8 +235,9 @@
                     <div class="table-responsive" ng-if="warnsLow > 0">
                         <table class="table table-striped">
                             <tbody>
-                                <tr ng-repeat="a in warns['Low'] | orderBy: 'lastupdate'">
-                                    <td align="right" class="nwarning_Low">
+                                <tr ng-repeat="a in warns['Low'] | orderBy: 'title'">
+                                    <td style="width: 5px; padding-left: 0px;padding-right: 0px;" class="nwarning_Low"></td>
+                                    <td align="left" bgcolor="#f0f0f0"'>
                                         <small><b>{{a.title}}</b></small>
                                     </td>
                                     <td ng-bind-html="render(a.description, 'desc')"></td>
@@ -229,6 +249,25 @@
                         </table>
                     </div>
                     <div ng-if="!(warnsLow > 0)">No low warnings.</div>
+                    <br>
+                    <h3 class="sub-header" id="Info">Info</h3>
+                    <div class="table-responsive" ng-if="warnsInfo > 0">
+                        <table class="table table-striped">
+                            <tbody>
+                                <tr ng-repeat="a in warns['Info'] | orderBy: 'title'">
+                                    <td style="width: 5px; padding-left: 0px;padding-right: 0px;" class="nwarning_Info"></td>
+                                    <td align="left" bgcolor="#f0f0f0"'>
+                                        <small><b>{{a.title}}</b></small>
+                                    </td>
+                                    <td ng-bind-html="render(a.description, 'desc')"></td>
+                                    <td align="right" style="white-space: nowrap; width: 1%">
+                                        <small>Last update: <span ng-bind-html="render(a.lastupdate, 'date')"></span><br>Created on: <span ng-bind-html="render(a.createdate, 'date')"></span></small>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>           
+                    <div ng-if="!(warnsInfo > 0)">No info messages available.</div>
                 </div>
             </div>
         </div>

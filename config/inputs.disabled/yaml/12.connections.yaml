@@ -1,6 +1,6 @@
 input: 	
    name         : RAID connections 
-   timeInterval : 5000
+   cron         : "*/15 * * * * *"
    waitForFinish: true
    onlyOnEvent  : true
    exec         : >
@@ -38,6 +38,7 @@ input:
                "In use": r.InUse.length 
             }
         })
+        return true;
       });
 
       return ret;

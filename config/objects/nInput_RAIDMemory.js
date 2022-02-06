@@ -11,6 +11,10 @@
  * </odoc>
  */
 var nInput_RAIDMemory = function(anMonitoredAFObjectKey, attributePrefix) {
+	if (isUnDef(getOPackPath("OpenCli"))) {
+        throw "OpenCli opack not installed.";
+	}
+	
 	// Set server if doesn't exist
 	if (isObject(anMonitoredAFObjectKey)) {
 		this.params = anMonitoredAFObjectKey;
@@ -57,14 +61,20 @@ nInput_RAIDMemory.prototype.__getMemory = function(aKey, aExtra) {
 	try {
 		var mems;
 		var parent = this;
-		nattrmon.useObject(aKey, function(s) {
-			try {
-				mems = s.exec("StatusReport", {}).MemoryInfo;
-			} catch(e) {
-				logErr("Error while retrieving memory using '" + aKey + "': " + e.message);
-				throw e;
-			}		
-		});
+		if (isString(parent.params.useCache)) {
+			var res = $cache("nattrmon::" + parent.params.useCache + "::" + aKey).get({ op: "StatusReport", args: {} });
+			if (isMap(res) && isDef(res.__error)) throw res.__error;
+			mems = res.MemoryInfo;
+		} else {
+			nattrmon.useObject(aKey, function(s) {
+				try {
+					mems = s.exec("StatusReport", {}).MemoryInfo;
+				} catch(e) {
+					logErr("Error while retrieving memory using '" + aKey + "': " + e.message);
+					throw e;
+				}		
+			});
+		}
 
 		freemem = Math.round(Number(mems.FreeHeapMemory.replace(/MB/,"")));
 		usedmem = Math.round(Number(mems.UsedHeapMemory.replace(/MB/,"")));

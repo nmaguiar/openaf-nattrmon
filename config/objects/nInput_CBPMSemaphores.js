@@ -9,6 +9,10 @@
  * </odoc>
  */
 var nInput_CBPMSemaphores = function(anMonitoredAFObjectKey, attributePrefix, dontIgnoreDuplicates) {
+	if (isUnDef(getOPackPath("OpenCli"))) {
+		throw "OpenCli opack not installed.";
+	}
+	 
 	// Set server if doesn't exist
 	// Is a monitored object or a pool?
 	if (isObject(anMonitoredAFObjectKey)) {
@@ -73,13 +77,13 @@ nInput_CBPMSemaphores.prototype.__getSems = function(aKey, scope) {
 					isDefined(sems.entry_list[i].name) && 
 					isDefined(sems.entry_list[i].value)) {
 
-					var semNameOrDesc = _.unescape(((sems.entry_list[i].description.length > 0) ? sems.entry_list[i].description : sems.entry_list[i].name));
+					var semNameOrDesc = _.unescape(((sems.entry_list[i].description.length > 0) ? sems.entry_list[i].description.replace(/\//g, "_") : sems.entry_list[i].name.replace(/\//g, "_")));
 					
 					var attrName = templify(this.getTemplate(), { 
 						"key": aKey,
 						"semNameOrDesc": semNameOrDesc,
-						"semName": _.unescape(sems.entry_list[i].name),
-						"semDescription": sems.entry_list[i].description
+						"semName": _.unescape(sems.entry_list[i].name.replace(/\//g,"_")),
+						"semDescription": sems.entry_list[i].description.replace(/\//g,"_")
 					});
 
 					// Add new attribute of type semaphore if it doesn't exist.

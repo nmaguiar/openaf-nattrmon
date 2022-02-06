@@ -9,6 +9,10 @@
  * </odoc>
  */
 var nInput_Sessions = function(aMap) {
+	if (isUnDef(getOPackPath("OpenCli"))) {
+        throw "OpenCli opack not installed.";
+	}
+	
 	if (isObject(aMap)) {
 		this.params = aMap;
 
@@ -29,35 +33,62 @@ inherit(nInput_Sessions, nInput);
 
 nInput_Sessions.prototype.__getSessions = function(aKey, scope) {
 	var retSes = {};
-        var ses;
+    var ses, parseResult = false;
+	var parent = this;
 
 	try {
-		if (isDefined(aKey)) {
-			nattrmon.useObject(aKey, function(s) {
-				try {
-					ses = s.exec("StatusReport", {}).Services["wedo.jaf.services.sessions.SessionManagerBase"];
-					ses = (isDef(ses)) ? ses = ses.SessionManager.Sessions : {};
-					return true;
-				} catch(e) {
-					logErr("Error while retrieving sessions using '" + aKey + "': " + e.message);
-					return false;
-				}
-			});
+		if (isDef(aKey)) {
+			if (isString(parent.params.useCache)) {
+				var res = $cache("nattrmon::" + parent.params.useCache + "::" + aKey).get({ op: "StatusReport", args: { } });
+				if (isMap(res) && isDef(res.__error)) throw res.__error;
+				ses = res.Services["wedo.jaf.services.sessions.SessionManagerBase"];
+				ses = (isDef(ses) ? ses = ses.SessionManager.Sessions : []);
+				parseResult = true;
+			} else {
+				nattrmon.useObject(aKey, s => {
+					try {
+						ses = s.exec("StatusReport", {});
+						if (isMap(ses) && isDef(ses.Services) && isDef(ses.Services["wedo.jaf.services.sessions.SessionManagerBase"])) {
+							ses = ses.Services["wedo.jaf.services.sessions.SessionManagerBase"];
+							ses = (isDef(ses) ? ses = ses.SessionManager.Sessions : []);
+							parseResult = true;
+							return true;
+						} else {
+							return false;
+						}
+					} catch(e) {
+						logErr("Error while retrieving sessions using '" + aKey + "': " + e.message);
+						return false;
+					}
+				});
+			}
 		} else {
-			ses = s.exec("StatusReport", {}).Services["wedo.jaf.services.sessions.SessionManagerBase"];
-                        ses = (isDef(ses)) ? ses = ses.SessionManager.Sessions : {};
+			try {
+				ses = s.exec("StatusReport", {}).Services["wedo.jaf.services.sessions.SessionManagerBase"];
+				if (isMap(ses) && isDef(ses.Services) && isDef(ses.Services["wedo.jaf.services.sessions.SessionManagerBase"])) {
+					ses = ses.Services["wedo.jaf.services.sessions.SessionManagerBase"];
+					ses = (isDef(ses) ? ses = ses.SessionManager.Sessions : []);
+					parseResult = true;
+				}
+			} catch(e) {
+				logErr("Error while retrieving sessions: " + e.message);
+			}
 		}
 		
-	  	retSes = $from(ses).select(function(r) {
- 			r["Name"] = aKey; 
-			r["Start Time"] = ow.format.fromWeDoDateToDate(r["Start Time"]);
- 			return {
-               "Name": aKey,
- 			   "Username": r.Username,
- 			   "Id": r.Id,
-		       "Start Time": r["Start Time"]
-            };
-		});
+		if (parseResult) {
+			retSes = $from(ses).select(r => {
+				r["Name"] = aKey; 
+			    r["Start Time"] = ow.format.fromWeDoDateToDate(r["Start Time"]);
+				return {
+				  "Name": aKey,
+				  "Username": r.Username,
+				  "Id": r.Id,
+				  "Start Time": r["Start Time"]
+			   };
+		   });
+		} else {
+			throw "can't parse results";
+		}
 	} catch(e) {
 		logErr("Error while retrieving sessions using '" + aKey + "': " + e.message);
 	}
@@ -75,7 +106,7 @@ nInput_Sessions.prototype.input = function(scope, args) {
 		arr = arr.concat(this.__getSessions(this.params.keys[i], scope));
 	}
    
-    res[templify(this.params.attrTemplate)] = $from(arr).sort("Start Time", "Username", "Name").select();
+    res[templify(this.params.attrTemplate)] = $from(arr).sort("Name", "Start Time", "Username").select();
 	return res;
 };
 

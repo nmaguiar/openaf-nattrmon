@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="nattrmonApp">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="description" content="">
+        <meta name="author" content="">
+        <script src="js/jquery.min.js"></script>
+        <script src="js/angular.min.js"></script>
+        <script src="js/angular-animate.min.js"></script>
+        <script src="js/nattrmon_js.js"></script>
+        <link rel="icon" type="image/png" href="/f/favicon.png" />
+        <!-- Bootstrap core CSS -->
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="/f/css/font-awesome.min.css">
+        <!-- Custom styles for this template -->
+        <link href="dashboard.css" rel="stylesheet">
+        <link href="css/nattrmon.css" rel="stylesheet">
+        <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.3.0/respond.min.js"></script>
+    <![endif]-->
+        <script>
+            var nattrmonApp = angular.module('nattrmonApp', ['ngAnimate']);
+            var extra = "";
+            if (getUrlParameter("ct") != "") extra = "?ct=" + getUrlParameter("ct");
+
+            nattrmonApp.service('MetaService', function($http) {
+                this.getMeta = function() {
+                    return $http.get('/meta').then(function(result) {
+                        return result;
+                    });
+                };
+            });
+
+            nattrmonApp.service('JsonService', function($http) {
+                this.getJson = function() {
+                    return $http.get('/json').then(function(result) {
+                        return result;
+                    });
+                };
+
+                this.getPlugs = function() {
+                    return $http.get('/json?op=plugs').then(function(result) {
+                        return result;
+                    });
+                }
+            });
+
+            nattrmonApp.controller('ctl_nattrmon', function($scope, $sce, $http, $interval, MetaService, JsonService) {
+                var reftime = MetaService.getMeta();
+                reftime.then(function(data) {
+                    var refreshTimeout = data.data.refresh;
+                    $scope.refreshActive = false;
+                    $scope.loading = true;
+                    $scope.showLogout = (document.cookie.indexOf("nattrmon_auth=1") >= 0);
+
+                    JsonService.getPlugs().then(function(d) {
+                        refresh(d.data);
+
+                        plugs = d.data.plugs;
+                        $scope.plugs = plugs;
+
+                        try { $scope.plugsInputs = Object.keys(plugs['Inputs']).length; }
+                         catch(e) { $scope.plugsInputs = 0; };
+                        try { $scope.plugsValidations = Object.keys(plugs['Validations']).length; }
+                         catch(e) { $scope.plugsValidations = 0 };
+                        try { $scope.plugsOutputs = Object.keys(plugs['Outputs']).length; }
+                         catch(e) { $scope.plugsOutputs = 0 };
+                    });
+
+                    $scope.startRefresh = function() {
+                        if ( $scope.refreshActive ) return;
+
+                        dataref = $interval(function() {
+                            $scope.loading = true;
+                            MetaService.getMeta().then(function(d) {
+                                $scope.title = d.data.title;
+                                $scope.extra = extra;
+                                $scope.refresh = d.data.refresh;
+                                document.title = d.data.title + " nAttrMon";
+                                $scope.loading = false;
+                            });
+
+                            $scope.loading = true;
+                            JsonService.getPlugs().then(function(d) {
+				refresh(d.data);
+                                plugs = d.data.plugs;
+                                $scope.plugs = plugs;
+                                $scope.plugsInputs = Object.keys(plugs['inputs']).length;
+                       		$scope.plugsValidations = Object.keys(plugs['validations']).length;
+                      		$scope.plugsOutputs = Object.keys(plugs['outputs']).length;
+                                $scope.loading = false;
+                            });
+
+                        }, refreshTimeout);
+
+                        $scope.refreshActive = true;
+                    };
+
+                    $scope.stopRefresh = function() {
+                        $scope.loading = false;
+                        if (angular.isDefined(stop)) {
+                            $interval.cancel(dataref);
+                            dataref = undefined;
+                        }
+
+                        $scope.refreshActive = false;
+                    };
+
+                    $scope.checkRefresh = function(aFlag) {
+                        if (!aFlag) {
+                            $scope.startRefresh();
+                        } else {
+                            $scope.stopRefresh();
+                        }
+                    }
+
+                    $scope.$on('$destroy', function() {
+                        $scope.stopRefresh();
+                    });
+
+                    $scope.render = function(aValue, aType) {
+			return render($sce, aValue, aType);
+                    }
+
+                    angular.element(document).ready(function () {
+                        $scope.startRefresh();
+                    });
+                });
+            });
+        </script>
+        <title>nAttrMon</title>
+    </head>
+    <body ng-controller="ctl_nattrmon" ng-init="startRefresh()">
+        <div class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="index.html{{extra}}" ng-click="startRefresh()"><i class="icon-wedo-nattrmon" style="font-size:150%;color:darkorange"></i>&nbsp;&nbsp;<span style="color:darkorange"></span><span style="color:#f5f5f5">{{title}}</span>&nbsp;<span style="font-size:75%;"> nAttrMon plugs</span></a>
+                </div>
+                <div class="navbar-collapse collapse">
+                    <ul class="nav navbar-nav navbar-right">
+                        <li>
+                            <a href="index.html{{extra}}">Warnings</a>
+                        </li>
+                        <li>
+                            <a href="now.html{{extra}}">Now</a>
+                        </li>
+                        <li>
+                            <a href="history.html{{extra}}">History</a>
+                        </li>
+                        <li>
+                            <a href="plugs.html{{extra}}">Plugs</a>
+                        </li>         
+                        <li ng-if="showLogout">
+                            <a href="logout.html">Logout</a>
+                        </li>                  
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-sm-2 sidebar" style="overflow-x: hidden; overflow-y: auto">
+                    <div ng-if="refreshActive" class="animate-if" style="text-align: center">
+                        <small ng-hide="loading"><i>Refreshed every {{refresh}}ms</i></small>
+                        <small ng-show="loading"><i class="fa fa-spinner fa-pulse"></i><i> Loading</i></small>
+                        <br>
+                        <button type="button" ng-click="stopRefresh()">
+                            <i class="fa fa-hand-paper-o"></i>&nbsp;&nbsp;Stop refresh
+                        </button>
+                    </div>
+                    <div ng-if="!refreshActive" class="animate-if" style="text-align: center">
+                        <small style="color: red"><b>Not being refreshed!</b></small>
+                        <br>
+                        <button type="button" ng-click="startRefresh()">
+                            <i class="fa fa-play"></i>&nbsp;&nbsp;Start refresh
+                        </button>
+                    </div>
+                    <br>
+                    <ul class="nav nav-sidebar">
+                        <li>
+                            <a href="#Inputs">Inputs (#{{plugsInputs}})</a>
+                        </li>
+                        <li>
+                            <a href="#Validations">Validations (#{{plugsValidations}})</a>
+                        </li>
+                        <li>
+                            <a href="#Outputs">Outputs (#{{plugsOutputs}})</a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-sm-10 col-sm-offset-2 main">
+                    <h3 class="sub-header" id="Inputs">Inputs</h3>
+                    <div class="table-responsive" ng-if="plugsInputs > 0">
+                        <table class="table table-striped">
+                            <tbody>
+                                <tr ng-repeat="a in plugs['inputs'] | orderBy: 'meta.name'">
+                                    <td>
+                                        <table class="nattributetable">
+                                            <tr class="nattributetablehead">
+                                                <th class="nattributetablehead">Metadata</th>
+                                                <th class="nattributetablehead">Last check</th>
+                                                <th class="nattributetablehead">Created on</th>
+                                                <th class="nattributetablehead">Stats</th>
+                                            </tr>
+                                            <tr>
+                                                <td class="nattributetablecell"><span ng-bind-html="render(a.meta)"></span></td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.last)"></span>&nbsp;&nbsp;</td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.created)"></span>&nbsp;&nbsp;</td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.stats)"></span>&nbsp;&nbsp;</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div ng-if="!(plugsInputs > 0)">No input plugs.</div>
+                    <h3 class="sub-header" id="Validations">Validations</h3>
+                    <div class="table-responsive" ng-if="plugsValidations > 0">
+                        <table class="table table-striped">
+                            <tbody>
+                                <tr ng-repeat="a in plugs['validations'] | orderBy: 'meta.name'">
+                                    <td>
+                                        <table class="nattributetable">
+                                            <tr class="nattributetablehead">
+                                                <th class="nattributetablehead">Metadata</th>
+                                                <th class="nattributetablehead">Last check</th>
+                                                <th class="nattributetablehead">Created on</th>
+                                                <th class="nattributetablehead">Stats</th>
+                                            </tr>
+                                            <tr>
+                                                <td class="nattributetablecell"><span ng-bind-html="render(a.meta)"></span></td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.last)"></span>&nbsp;&nbsp;</td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.created)"></span>&nbsp;&nbsp;</td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.stats)"></span>&nbsp;&nbsp;</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div ng-if="!(plugsValidations > 0)">No validation plugs.</div>
+                    <h3 class="sub-header" id="Outputs">Outputs</h3>
+                    <div class="table-responsive" ng-if="plugsOutputs > 0">
+                        <table class="table table-striped">
+                            <tbody>
+                                <tr ng-repeat="a in plugs['outputs'] | orderBy: 'meta.name'">
+                                    <td>
+                                        <table class="nattributetable">
+                                            <tr class="nattributetablehead">
+                                                <th class="nattributetablehead">Metadata</th>
+                                                <th class="nattributetablehead">Last check</th>
+                                                <th class="nattributetablehead">Created on</th>
+                                                <th class="nattributetablehead">Stats</th>
+                                            </tr>
+                                            <tr>
+                                                <td class="nattributetablecell"><span ng-bind-html="render(a.meta)"></span></td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.last)"></span>&nbsp;&nbsp;</td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.created)"></span>&nbsp;&nbsp;</td>
+                                                <td class="nattributetablecell">&nbsp;&nbsp;<span ng-bind-html="render(a.stats)"></span>&nbsp;&nbsp;</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div ng-if="!(plugsOutputs > 0)">No output plugs.</div>
+                </div>
+            </div>
+        </div>
+        <script src="js/bootstrap.min.js"></script>
+        <!-- Bootstrap core JavaScript
+    ================================================== -->
+        <!-- Placed at the end of the document so the pages load faster -->
+        <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
+        <script src="js/ie10-viewport-bug-workaround.js"></script>
+    </body>
+</html>

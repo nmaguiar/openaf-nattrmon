@@ -1,0 +1,201 @@
+# oJob_nAttrMon.yaml __NAM_DEBUG=1 __NAM_NEED_CH_PERSISTENCE=
+#ojob:
+#  daemon: true
+
+#todo:
+#- nAttrMon Prepare shutdown
+#- nAttrMon Init
+#- Add plugs
+#- nAttrMon Start
+#- nAttrMon Stop
+
+jobs:
+# -------------------------------
+- name: nAttrMon Prepare shutdown
+  type: shutdown
+  exec: |
+    $ch()
+    .list()
+    .filter(r => r.startsWith("nattrmon::"))
+    .forEach(r => {
+      global.nattrmon.debug("Waiting for " + r + "...");
+      $ch(r).waitForJobs();
+    })
+
+    global.nattrmon.stop();
+    $ch("nattrmon::trigger").destroy()
+    log("nAttrMon stopped.");
+    //print(new Date() + " | Stopping.");
+
+# -----------------------
+- name: nAttrMon Shutdown
+  exec: |
+    $ch()
+    .list()
+    .filter(r => r.startsWith("nattrmon::"))
+    .forEach(r => {
+      global.nattrmon.debug("Waiting for " + r + "...");
+      $ch(r).waitForJobs();
+    })
+    
+    global.nattrmon.stop()
+    $ch("nattrmon::trigger").destroy()
+    log("nAttrMon stopped.")
+
+# -------------------------
+- name: nAttrMon Run Single
+  from:
+  - nAttrMon Start
+  exec: |
+    $ch("nattrmon::trigger").waitForJobs();
+    if ($ch().list().indexOf("nattrmon::cvals::__bufferTransit") >= 0) ow.ch.utils.flushBuffer("nattrmon::cvals::__bufferTransit");
+    if ($ch().list().indexOf("nattrmon::lvals::__bufferTransit") >= 0) ow.ch.utils.flushBuffer("nattrmon::lvals::__bufferTransit");
+    if ($ch().list().indexOf("nattrmon::warnings::__bufferTransit") >= 0) ow.ch.utils.flushBuffer("nattrmon::warnings::__bufferTransit");
+
+    ["nattrmon::trigger", "nattrmon::plugs", "nattrmon::lvals", "nattrmon::cvals", "nattrmon::warnings", "nattrmon::lvals::buffer", "nattrmon::cvals::buffer", "nattrmon::warnings::buffer", "nattrmon::attributes", "nattrmon::warnings", "nattrmon::ps"]
+    .forEach(r => {
+      if ($ch().list().indexOf(r) >= 0) {
+        global.nattrmon.debug("Waiting for " + r + "...");
+        $ch(r).waitForJobs();
+        sleep(100, true);
+      }
+    });
+
+    if (isString(args.onStop)) args.onStop = [ args.onStop ];
+    if (isArray(args.onStop)) args.onStop.forEach(j => {
+      args = $job(j, args);
+    });
+
+    global.nattrmon.debug("Stopping...");
+    global.nattrmon.stop();
+
+    //exit(0);
+    //log("nAttrMon stopped.");
+    //print(new Date() + " | Stopping.");
+
+# -------------------
+- name: nAttrMon Stop
+  exec: |
+    $ch()
+    .list()
+    .filter(r => r.startsWith("nattrmon::"))
+    .forEach(r => {
+      global.nattrmon.debug("Waiting for " + r + "...");
+      $ch(r).waitForJobs();
+    });
+    global.nattrmon.debug("Stopping...");
+    exit(0);
+
+# ----------------------------
+- name    : nAttrMon Add Plugs
+  typeArgs:
+    single: true
+  exec    : |
+    var fnJob = j => {
+      if (isMap(j) && isDef(j.execJob) && isUnDef(j.exec) && isUnDef(j.execFrom)) {
+        j.exec  = "var r = $job('" + j.execJob + "', args);\n";
+        j.exec += "if (isMap(r)) {\n";
+        j.exec += "   if (isDef(r.set)) {\n";
+        j.exec += "      r = r.set;\n";
+        j.exec += "   } else {\n";
+        j.exec += "     delete r.objId; delete r.__id; delete r.execid;\n";
+        j.exec += "   };\n";
+        j.exec += "} return r;\n";
+      }
+
+      return j;
+    };
+
+    if (isDef(args.output)) {
+      args.output = fnJob(args.output);
+      var r = global.nattrmon.loadObject(args.output, "output");
+      global.nattrmon.addOutput(r, r.exec);
+    }
+    if (isDef(args.input)) {
+      args.input = fnJob(args.input);
+      if (isUnDef(args.input.timeInterval) && isUnDef(args.input.chSubscribe) && isUnDef(args.input.cron)) {
+        args.input.chSubscribe = "nattrmon::trigger";
+      }
+      var r = global.nattrmon.loadObject(args.input, "input");
+      global.nattrmon.addInput(r, r.exec);
+    }
+    if (isDef(args.validation)) {
+      args.validation = fnJob(args.validation);
+      var r = global.nattrmon.loadObject(args.validation, "validation");
+      global.nattrmon.addValidation(r, r.exec);
+    }
+
+# --------------------
+- name: nAttrMon Start
+  deps: nAttrMon Init
+  exec: |
+    global.nattrmon.debug("nAttrMon exec input plugs");
+    global.nattrmon.execPlugs(global.nattrmon.PLUGINPUTS);
+    global.nattrmon.debug("nAttrMon exec output plugs");
+    global.nattrmon.execPlugs(global.nattrmon.PLUGOUTPUTS);
+    global.nattrmon.debug("nAttrMon exec validation plugs");
+    global.nattrmon.execPlugs(global.nattrmon.PLUGVALIDATIONS);
+
+    global.nattrmon.debug("nAttrMon restoring snapshot");
+    log("nAttrMon started (main=" + global.NATTRMON_HOME + "; home=" + global.NATTRMON_SUBHOME + ").");
+
+    if (isString(args.onStart)) args.onStart = [ args.onStart ];
+    if (isArray(args.onStart)) args.onStart.forEach(j => {
+      args = $job(j, args);
+    });
+
+    $ch("nattrmon::trigger").set(1, 1);
+
+# -------------------
+- name: nAttrMon Init
+  exec: |
+    global.NATTRMON_HOME = args.NATTRMON_HOME || getEnv("NATTRMON_HOME");
+    if (isUnDef(global.NATTRMON_HOME)) global.NATTRMON_HOME = getOPackPath("nAttrMon") || ".";
+    global.NATTRMON_SUBHOME = args.NATTRMON_DIR || getEnv("NATTRMON_DIR");
+    if (isUnDef(global.NATTRMON_SUBHOME)) global.NATTRMON_SUBHOME = args.withHome || global.NATTRMON_HOME;
+
+    loadLib(global.NATTRMON_HOME + "/lib/nmain.js");
+
+    if (isDef(args.__NAM_LOGHK_HOWLONGAGOINMINUTE)) global.__NAM_LOGHK_HOWLONGAGOINMINUTE = Number(args.__NAM_LOGHK_HOWLONGAGOINMINUTE);
+    if (isDef(args.__NAM_LOGAUDIT)) global.__NAM_LOGAUDIT = Boolean(args.__NAM_LOGAUDIT);
+    if (isDef(args.__NAM_LOGAUDIT_TEMPLATE)) global.__NAM_LOGAUDIT_TEMPLATE = String(args.__NAM_LOGAUDIT_TEMPLATE);
+    if (isDef(args.__NAM_JAVA_ARGS)) global.__NAM_JAVA_ARGS = String(args.__NAM_JAVA_ARGS).split(",");
+    if (isDef(args.__NAM_MAXPLUGEXECUTE_TIME)) global.__NAM_MAXPLUGEXECUTE_TIME = Number(args.__NAM_MAXPLUGEXECUTE_TIME);
+    if (isDef(args.__NAM_BUFFERCHANNELS)) global.__NAM_BUFFERCHANNELS = Boolean(args.__NAM_BUFFERCHANNELS);
+    if (isDef(args.__NAM_BUFFERBYNUMBER)) global.__NAM_BUFFERBYNUMBER = Number(args.__NAM_BUFFERBYNUMBER);
+    if (isDef(args.__NAM_BUFFERBYTIME)) global.__NAM_BUFFERBYTIME = Number(args.__NAM_BUFFERBYTIME);
+    if (isDef(args.__NAM_NUMBER_WORKERS)) __cpucores = Number(args.__NAM_NUMBER_WORKERS);
+    if (isDef(args.__NAM_COREOBJECTS)) global.__NAM_COREOBJECTS = String(args.__NAM_COREOBJECTS);
+    if (isDef(args.__NAM_COREOBJECTS_LAZYLOADING)) global.__NAM_COREOBJECTS_LAZYLOADING = Boolean(args.__NAM_COREOBJECTS_LAZYLOADING);
+    if (isDef(args.__NAM_DEBUG)) global.__NAM_DEBUG = Boolean(args.__NAM_DEBUG);
+    if (isDef(args.__NAM_NEED_CH_PERSISTENCE)) global.__NAM_NEED_CH_PERSISTENCE = Boolean(args.__NAM_NEED_CH_PERSISTENCE);
+    if (isDef(args.__NAM_LOGCONSOLE)) global.__NAM_LOGCONSOLE = Boolean(args.__NAM_LOGCONSOLE); else global.__NAM_LOGCONSOLE = false;
+    if (isDef(args.__NAM_LOG_ASYNC)) __logFormat.async = Boolean(args.__NAM_LOG_ASYNC); else global.__NAM_LOG_ASYNC = true;
+    if (isDef(args.__NAM_MAXPLUGEXECUTE_TIME)) global.__NAM_MAXPLUGEXECUTE_TIME = Number(args.__NAM_MAXPLUGEXECUTE_TIME);
+    if (isString(args.__NAM_CHANNEL_CVALS))  global.__NAM_CHANNEL_CVALS = String(args.__NAM_CHANNEL_CVALS);
+    if (isString(args.__NAM_CHANNEL_LVALS))  global.__NAM_CHANNEL_LVALS = String(args.__NAM_CHANNEL_LVALS);
+    if (isString(args.__NAM_CHANNEL_WARNS))  global.__NAM_CHANNEL_WARNS = String(args.__NAM_CHANNEL_WARNS);
+
+    if (isUnDef(args.withDirectory)) {
+      global.nattrmon = new nAttrMon(global.NATTRMON_SUBHOME + "/config", global.__NAM_DEBUG);
+    } else {
+      global.nattrmon = new nAttrMon(args.withDirectory, global.__NAM_DEBUG);
+    }
+
+    global.nattrmon.debug("nAttrMon start load plugs");
+    global.nattrmon.loadPlugs();
+
+    $ch("nattrmon::trigger").create();
+
+    (function() {
+      print("Reapplying parameters:");
+      $from(Object.keys(args))
+      .starts("__NAM_")
+      .notStarts("__NAM_SEC")
+      .sort()
+      .select(r => { 
+        print(r + ": " + global[r]);
+      });
+
+      print(repeat(80, "-"));
+    })();
