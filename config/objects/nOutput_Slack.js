@@ -12,8 +12,9 @@
  * \
  * </odoc>
  */
- var nOutput_Slack = function(aMap) {
-    this.params = aMap;
+var nOutput_Slack = function(aMap) {
+    this.params = _$(aMap, "aMap").isMap().default({})
+
     nOutput.call(this, this.output);
 };
 inherit(nOutput_Slack, nOutput);
@@ -25,6 +26,10 @@ nOutput_Slack.prototype.output = function(scope, args, meta) {
         this.params.__notifyID = sha1(meta.aName);
 
         var warns = nattrmon.getWarnings(true).getCh().getAll();
+        if (isDef(this.params.filter)) {
+            warns = nattrmon.filter(warns, this.params.filter)
+            sprint(warns)
+        }
         for(var inotif in this.params.notifications) {
             var notif = this.params.notifications[inotif];
             var selec = $from(warns);
@@ -51,7 +56,7 @@ nOutput_Slack.prototype.output = function(scope, args, meta) {
             var parent = this;
 
             selec.select((w) => {
-                if (isDef(notif.webhook) && !nattrmon.isNotified(w.title, w.level + parent.params.__notifyID + md5(notif.webhook))) {
+                if (isDef(notif.webhook) && !nattrmon.isNotified(w.title, md5(w.title + w.level) + parent.params.__notifyID + md5(notif.webhook))) {
                     // Prepare message for notification
                     var aPreMessage = templify("*_{{level}}_ | {{{title}}}*\n{{{description}}}", w);
                     var aContext    = templify("_created on {{createdate}}_", w);
@@ -95,11 +100,12 @@ nOutput_Slack.prototype.output = function(scope, args, meta) {
                                 }
                             ] };
                         }
-                        
+
+                        nattrmon.setNotified(w.title, md5(w.title + w.level) + parent.params.__notifyID + md5(notif.webhook));
+                        log("Slack notified for '" + w.title + "' : " +  md5(w.title + w.level) + parent.params.__notifyID + md5(notif.webhook))
                         var restReply = $rest().post(notif.webhook, restMsg);
                         if (restReply != "ok") logWarn("Reply from Slack was not expected: " + stringify(restReply, ""));
                         // Notify that was been sent successfully
-                        nattrmon.setNotified(w.title, w.level + parent.params.__notifyID + md5(notif.webhook));
                     } catch(e) {
                         logErr("nOutput_Slack: [" + stringify(notif, void 0, "") + "] " + String(e));
                     }
