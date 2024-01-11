@@ -15,10 +15,10 @@ var nOutput_HTTP_Metrics = function (aMap) {
         this.includeLVals = _$(aMap.includeLVals, "includeLVals").isBoolean().default(false);
         this.includeWarns = _$(aMap.includeWarns, "includeWarns").isBoolean().default(true);
 
-        this.nameSelf  = _$(aMap.nameSelf, "nameSelf").isString().default("nattrmon");
-        this.nameCVals = _$(aMap.nameCVals, "nameCVals").isString().default("nattrmon_cval");
-        this.nameLVals = _$(aMap.nameLVals, "nameLVals").isString().default("nattrmon_lval");
-        this.nameWarns = _$(aMap.nameWarns, "nameWarns").isString().default("nattrmon_warn");
+        this.nameSelf  = _$(aMap.nameSelf, "nameSelf").isString().default("nattrmon_self")
+        this.nameCVals = _$(aMap.nameCVals, "nameCVals").isString().default("nattrmon")
+        this.nameLVals = _$(aMap.nameLVals, "nameLVals").isString().default("nattrmon_lval")
+        this.nameWarns = _$(aMap.nameWarns, "nameWarns").isString().default("nattrmon_warn")
 
 		this.chName   = _$(aMap.chName, "chName").isString().default(__);
 		this.chType   = _$(aMap.chType, "chType").isString().default(__);
@@ -26,6 +26,16 @@ var nOutput_HTTP_Metrics = function (aMap) {
 		this.chPeriod = _$(aMap.chPeriod, "chPeriod").isNumber().default(5000);
 
 		this.format   = _$(aMap.format, "format").isString().default(__)
+
+		this.include = aMap.attrInclude
+		this.exclude = aMap.attrExclude
+
+		this.findAndReplace = _$(aMap.findAndReplace, "findAndReplace").isArray().default([])
+	
+		if (isDef(this.include) && !isArray(this.include)) throw "attrInclude needs to be an array"
+		if (isDef(this.exclude) && !isArray(this.exclude)) throw "attrExclude needs to be an array"
+
+		this.removeIds = _$(aMap.removeIds, "removeIds").isBoolean().default(true)
 
 		if (isDef(this.chName) && this.chPeriod > 0) $ch(this.chName).create(1, this.chType, this.chParams);
 	} else {
@@ -134,9 +144,27 @@ var nOutput_HTTP_Metrics = function (aMap) {
             var d = (new Date(r.date)).getTime();
             delete r.date;
             var m = {}; m[r.name] = r.val;
+			traverse(m, (k, v, p, o) => {
+				if (isNull(v)) delete o[k]
+			})
             return ow.metrics.fromObj2OpenMetrics(m, n, d);
         }).join("");
     }
+
+	var _parsew = (e, n) => {
+		var _e = []
+		Object.keys(e).forEach(k => {
+			_e = _e.concat(e[k].map(w => {
+				var d = (new Date(w.lastupdate)).getTime()
+				var m = {}; m[w.title] = clone(w)
+				delete m[w.title].lastupdate
+				delete m[w.title].notifications
+				m[w.title].num = 1
+				return ow.metrics.fromObj2OpenMetrics(m, n, d)
+			}))
+		})
+		return _e.join("")
+	}
 
 	ow.metrics.add("nattrmon", () => {
 		var _a = nattrmon.getAttributes(true); 
@@ -193,6 +221,39 @@ var nOutput_HTTP_Metrics = function (aMap) {
 
 	if (isDef(this.chName) && this.chPeriod > 0) ow.metrics.startCollecting(this.chName, this.chPeriod);
 
+    var _filter = m => {
+		var _r = {}
+		if (isArray(this.include) && this.include.length > 0) {
+			Object.keys(m).filter(k => {
+				this.include.forEach(f => {
+					if (k.match(new RegExp(f))) _r[k] = m[k]
+				})
+			})
+		} else {
+			_r = m
+		}
+		if (isArray(this.exclude) && this.exclude.length > 0) {
+			Object.keys(m).filter(k => {
+				this.exclude.forEach(f => {
+					if (k.match(new RegExp(f))) delete m[k]
+				})
+			})
+		}
+		return _r
+	}
+
+	var _filterIds = lines => {
+		if (this.removeIds) {
+			lines = lines.split("\n").map(line => {
+				if (line.indexOf("{_id=\"") >= 0) line = line.replace(/{_id=\"\d+\",/, "{")
+				if (line.indexOf(",_id=\"") >= 0) line = line.replace(/,_id=\"\d+\"}/, "}")
+				if (line.indexOf("_id=\"") >= 0) line = line.replace(/,_id=\"\d+\",/, ",")
+				return line
+			}).join("\n")
+		}
+		return lines
+	}
+
 	// Add function to server
 	//httpd.addEcho("/echo");
     var parent = this;
@@ -207,14 +268,14 @@ var nOutput_HTTP_Metrics = function (aMap) {
 					if (isDef(req.params.type)) {
 						switch(req.params.type) {
 						case "self" : _res = ow.metrics.getAll(); break
-						case "cvals": _res = nattrmon.getCurrentValues(); break
-						case "lvals": _res = nattrmon.getLastValues(); break
+						case "cvals": _res = _filter(nattrmon.getCurrentValues()); break
+						case "lvals": _res = _filter(nattrmon.getLastValues()); break
 						case "warns": _res = nattrmon.getWarnings(); break
 						}
 					} else {
 						if (parent.includeSelf)  _res[parent.nameSelf] = ow.metrics.getAll()
-						if (parent.includeCVals) _res[parent.nameCVals] = nattrmon.getCurrentValues()
-						if (parent.includeLVals) _res[parent.nameLVals] = nattrmon.getLastValues()
+						if (parent.includeCVals) _res[parent.nameCVals] = _filter(nattrmon.getCurrentValues())
+						if (parent.includeLVals) _res[parent.nameLVals] = _filter(nattrmon.getLastValues())
 						if (parent.includeWarns) _res[parent.nameWarns] = nattrmon.getWarnings()
 					}
 					res = stringify(_res, __, "")
@@ -222,19 +283,25 @@ var nOutput_HTTP_Metrics = function (aMap) {
 				default:
 					if (isDef(req.params.type)) {
 						switch(req.params.type) {
-						case "self" : res += ow.metrics.fromObj2OpenMetrics(ow.metrics.getAll(), parent.nameSelf); break
-						case "cvals": res += _parse(nattrmon.getCurrentValues(), parent.nameCVals); break
-						case "lvals": res += _parse(nattrmon.getLastValues(), parent.nameLVals); break
-						case "warns": res += _parse(nattrmon.getWarnings(), parent.nameWarns); break
+						case "self" : res += _filterIds(ow.metrics.fromObj2OpenMetrics(ow.metrics.getAll(), parent.nameSelf)); break
+						case "cvals": res += _filterIds(_parse(_filter(nattrmon.getCurrentValues()), parent.nameCVals)); break
+						case "lvals": res += _filterIds(_parse(_filter(nattrmon.getLastValues()), parent.nameLVals)); break
+						case "warns": res += _filterIds(_parsew(nattrmon.getWarnings(), parent.nameWarns)); break
 						}
 					} else {
-						if (parent.includeSelf)  res += ow.metrics.fromObj2OpenMetrics(ow.metrics.getAll(), parent.nameSelf);
-						if (parent.includeCVals) res += _parse(nattrmon.getCurrentValues(), parent.nameCVals);
-						if (parent.includeLVals) res += _parse(nattrmon.getLastValues(), parent.nameLVals);
-						if (parent.includeWarns) res += _parse(nattrmon.getWarnings(), parent.nameWarns);
+						if (parent.includeSelf)  res += _filterIds(ow.metrics.fromObj2OpenMetrics(ow.metrics.getAll(), parent.nameSelf));
+						if (parent.includeCVals) res += _filterIds(_parse(_filter(nattrmon.getCurrentValues()), parent.nameCVals));
+						if (parent.includeLVals) res += _filterIds(_parse(_filter(nattrmon.getLastValues()), parent.nameLVals));
+						if (parent.includeWarns) res += _filterIds(_parsew(nattrmon.getWarnings(), parent.nameWarns));
 					}
 					break;
 				}
+				parent.findAndReplace.forEach(far => {
+					if (isMap(far) && isDef(far.find) && isDef(far.replace)) {
+						far.flags = _$(far.flags, "flags").isString().default("mg")
+						res = res.replace(new RegExp(far.find, far.flags), far.replace)
+					}
+				})
 				var hres = ow.server.httpd.reply(res, 200, "text/plain", {});
 				hres.data = String(hres.data).replace(/\n+/g, "\n");
 				return preProcess(req, hres);
